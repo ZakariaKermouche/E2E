@@ -1,0 +1,21 @@
+services:
+
+    cassandra:
+      image: cassandra:latest
+      container_name: cassandra
+      hostname: cassandra
+      ports:
+        - "9042:9042"
+      environment:
+        MAX_HEAP_SIZE: 512M
+        HEAP_NEWSIZE: 100M
+        CASSANDRA_CLUSTER_NAME: 'AirflowCluster'
+        CASSANDRA_NUM_TOKENS: 16
+        CASSANDRA_START_RPC: 'true'
+        CASSANDRA_USERNAME: cassandra
+        CASSANDRA_PASSWORD: cassandra
+
+      volumes:
+        - cassandra-data:/var/lib/cassandra
+      networks:
+        - spark-network

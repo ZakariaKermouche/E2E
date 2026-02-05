@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:16
+    env_file:
+      - ./.env
+    # environment:
+    #   POSTGRES_USER: ${POSTGRES_USER}
+    #   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+      - ./airflow_init.sql:/docker-entrypoint-initdb.d/airflow_init.sql
+      - ./superset_init.sql:/docker-entrypoint-initdb.d/superset_init.sql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+    restart: always
+    networks:
+      - spark-network
+      - airflow-network
+      - superset-network

@@ -1,0 +1,24 @@
+include:
+  - ./superset/docker-compose.yml
+  - ./airflow/docker-compose.yml
+  - ./kafka/docker-compose.yml
+  - ./spark/docker-compose.yml
+  - ./postgres/docker-compose.yml
+  - ./cassandra/docker-compose.yml
+
+
+networks:
+  confluent:
+  airflow-network:
+    driver: bridge
+  spark-network:
+    driver: bridge
+  superset-network:
+    driver: bridge
+
+volumes:
+  postgres-db-volume:
+  cassandra-data:
+  superset_db_data:
+  kafka-data:
+

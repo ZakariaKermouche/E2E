@@ -1,0 +1,82 @@
+node_modules/
+venv/
+.venv/
+env/
+ENV/
+build/
+dist/
+*.egg-info/
+*.pyc
+__pycache__/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Docker
+docker-compose.override.yml
+.dockerignore
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+
+# Python
+*.pyo
+*.pyd
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Test coverage
+.coverage
+.coverage.*
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# SQLite (if used)
+*.db
+*.sqlite
+*.sqlite3
+
+# Project specific
+airflow/logs/
+airflow/plugins/__pycache__/
+spark/work/
+superset/
+
+# Sensitive
+credentials.json
+secrets.yml
+private_key.pem

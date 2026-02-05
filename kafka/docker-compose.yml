@@ -1,0 +1,110 @@
+
+services:
+    zookeeper:
+      image: confluentinc/cp-zookeeper:7.8.0
+      hostname: zookeeper
+      container_name: zookeeper
+      ports:
+        - "2181:2181"
+      environment:
+        ZOOKEEPER_CLIENT_PORT: 2181
+        ZOOKEEPER_SERVER_ID: 1
+        ZOOKEEPER_SERVERS: zookeeper:2888:3888
+      volumes:
+          - ./kafka-data/zookeeper/data:/var/lib/zookeeper/data
+          - ./kafka-data/zookeeper/log:/var/lib/zookeeper/log
+
+      networks:
+        - spark-network
+        - airflow-network
+
+    broker:
+      # Kafka Broker
+      image: confluentinc/cp-kafka:7.8.0
+      hostname: broker
+      container_name: broker
+      depends_on:
+        - zookeeper
+      ports:
+        - "9092:9092"
+        - "29092:29092"
+      environment:
+        KAFKA_BROKER_ID: 1
+        # KAFKA_ADVERTISED_LISTENERS: INTERNAL://broker:19092,EXTERNAL://${DOCKER_HOST_IP:-127.0.0.1}:9092,DOCKER://host.docker.internal:29092
+        KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://localhost:9092
+        # KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,DOCKER:PLAINTEXT
+        KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+        # KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+        KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+        KAFKA_LOG4J_LOGGERS: "kafka.controller=INFO,kafka.producer.async.DefaultEventHandler=INFO,state.change.logger=INFO"
+        KAFKA_AUTHORIZER_CLASS_NAME: kafka.security.authorizer.AclAuthorizer
+        KAFKA_ALLOW_EVERYONE_IF_NO_ACL_FOUND: "true"
+        KAFKA_REPLICATION_FACTOR: 1
+        KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      networks:
+        - spark-network
+        - airflow-network
+      healthcheck:
+        test: [ "CMD", "bash", "-c", 'nc -z localhost 9092' ]
+        interval: 10s
+        timeout: 5s
+        retries: 5
+      volumes:
+        - kafka-data:$KAFKA_VOLUME_PATH
+        # - ./scripts/:/scritps/
+        # - ./config/entrypoint.sh:/etc/confluent/docker/entrypoint.sh
+
+    schema-registry:
+      image: confluentinc/cp-schema-registry:latest
+      hostname: schema-registry
+      container_name: schema-registry
+      depends_on:
+        broker:
+          condition: service_healthy  
+      ports:
+        - "8081:8081"
+      environment:
+        SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: 'broker:29092'
+        SCHEMA_REGISTRY_HOST_NAME: 'schema-registry'
+        SCHEMA_REGISTRY_LISTENERS: 'http://0.0.0.0:8081'
+      networks:
+        - spark-network
+        - airflow-network
+      healthcheck: # Schema Registry health check with curl
+        test: [ "CMD", "curl", "-f", "http://localhost:8081/" ]
+        interval: 10s
+        timeout: 5s
+        retries: 5
+      
+    control-center:
+      image: confluentinc/cp-enterprise-control-center:latest
+      hostname: control-center
+      container_name: control-center
+      depends_on:
+        broker:
+          condition: service_healthy  
+        schema-registry:
+          condition: service_healthy  
+      ports:
+        - "9021:9021"
+      environment:
+        CONTROL_CENTER_BOOTSTRAP_SERVERS: 'broker:29092'
+        CONTROL_CENTER_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+        CONTROL_CENTER_SCHEMA_REGISTRY_URL: 'http://schema-registry:8081'
+        CONTROL_CENTER_REPLICATION_FACTOR: 1
+        CONTROL_CENTER_INTERNAL_TOPICS_PARTITIONS: 1
+        CONTROL_CENTER_MONITORING_INTERCEPTOR_TOPIC_PARTITIONS: 1
+        CONTROL_CENTER_COMMAND_TOPIC_PARTITIONS: 1
+        CONFLUENT_METRICS_ENABLED: 'false'
+        CONFLUENT_METRICS_TOPIC_REPLICATION: 1
+      
+      networks:
+        - spark-network
+        - airflow-network
+      
+      healthcheck:
+        test: ['CMD', 'bash', '-c', "curl -f http://localhost:9021/ || exit 1"]
+        interval: 10s
+        timeout: 5s
+        retries: 5
+    
