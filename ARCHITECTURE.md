@@ -44,12 +44,14 @@
                 ┌────────────┴────────────┐
                 ▼                         ▼
     ┌─────────────────────┐   ┌────────────────────┐
-    │   STORAGE LAYER     │   │  STORAGE LAYER     │
-    │     PostgreSQL      │   │    Cassandra       │
-    │  • Structured Data  │   │  • Time-Series     │
-    │  • Relational Model │   │  • High Throughput │
-    │  • ACID Properties  │   │  • Distributed     │
-    │  • OLTP optimized   │   │  • NoSQL Model     │
+   │   STORAGE LAYER     │   │  STORAGE LAYER     │
+   │ PostgreSQL (Metadata│   │    Cassandra       │
+   │     only)           │   │  • Time-Series     │
+   │  • Metadata store   │   │  • High Throughput │
+   │  • Airflow &        │   │  • Distributed     │
+   │    Superset metadata│   │  • NoSQL Model     │
+   │  • Not used for     │   │                    │
+   │    application OLTP │   │                    │
     └─────────────────────┘   └────────────────────┘
                 │                       │
                 └───────────┬───────────┘
@@ -126,6 +128,8 @@ kafka_stream (DAG)
 **Connection Details:**
 - Bootstrap Servers: `broker:9092`
 - ZooKeeper: `zookeeper:2181`
+- Schema Registry: `schema-registry:8081` (for Avro/Schema management)
+- Control Center: `control-center:9021` (optional monitoring/UI)
 - Network: `confluent`
 
 ---
@@ -139,7 +143,9 @@ kafka_stream (DAG)
 2. Parse JSON messages
 3. Apply transformations
 4. Data quality checks
-5. Write to PostgreSQL & Cassandra
+5. Write application data to Cassandra (or other OLTP/OLAP storage).
+   PostgreSQL is only used as metadata DB for Airflow and Superset and
+   is not used as the primary OLTP store for application data.
 
 **Spark Configuration:**
 - Master: `spark://spark-master:7077`
@@ -150,33 +156,44 @@ kafka_stream (DAG)
 
 ---
 
-### 4. PostgreSQL Database
+### 4. PostgreSQL Database (Metadata only)
 
-**Purpose:** Structured data storage (OLTP)
+**Purpose:** Metadata store for orchestration and visualization platforms. PostgreSQL
+is used only for metadata for Airflow and Superset (DAG metadata, user/session
+information, Superset metadata). It is explicitly not used as the primary
+OLTP store for application/data pipeline output.
 
 **Schema:**
 ```
-Database: airflow_db
-├── tables
-├── sequences
-└── indexes
+Database: airflow
+├── alembic_version
+├── dag_run
+├── task_instance
+└── ... (Airflow metadata tables)
 
-Database: superset_db
-├── tables
-└── indexes
+Database: superset
+├── ab_user
+├── slices
+├── dashboards
+└── ... (Superset metadata tables)
 ```
 
-**Key Tables:**
-- `users` - User profile data
-- `events` - User activity events
-- `metrics` - Aggregated metrics
+**Key Tables (examples):**
+- Airflow: `dag`, `task_instance`, `dag_run`, `xcom` (metadata)
+- Superset: `ab_user`, `dashboards`, `slices`, `tables` (metadata)
 
 **Properties:**
-- Type: Relational SQL Database
-- ACID Compliance: Yes
-- Replication: Single instance
-- Connection Pool: 100 (default)
-- Network: `spark-network`, `airflow-network`, `superset-network`
+- Type: Relational SQL Database (metadata)
+- ACID Compliance: Yes (important for metadata integrity)
+- Replication: Single instance (can be upgraded to replicas for HA)
+- Connection Pool: tuned for metadata workloads (small, frequent queries)
+- Network: reachable by `airflow` and `superset` services only
+
+**Notes:**
+- Application OLTP and large-scale analytical data should be stored in
+   dedicated OLTP/OLAP systems (e.g., Cassandra, object storage, or a
+   separate production DB). Do not store application event data or bulk
+   user/profile records in this PostgreSQL instance.
 
 ---
 
@@ -210,9 +227,9 @@ user_events
 **Purpose:** Data visualization and dashboards
 
 **Databases Connected:**
-- PostgreSQL (superset_db)
-- PostgreSQL (airflow_db - for data)
-- Cassandra (optional)
+- PostgreSQL (superset metadata only)
+- Cassandra (as a data source for analytical dashboards)
+\- Other datasource connectors may be added (e.g., object storage, Redshift)
 
 **Features:**
 - Drag-and-drop dashboard builder
@@ -244,7 +261,6 @@ Networks:
   spark-network (bridge)
   ├── spark-master
   ├── spark-worker
-  ├── postgres
   └── cassandra
   
   superset-network (bridge)
@@ -264,10 +280,9 @@ Networks:
 | Airflow | Kafka | 9092 | TCP |
 | Airflow | PostgreSQL | 5432 | TCP |
 | Spark | Kafka | 9092 | TCP |
-| Spark | PostgreSQL | 5432 | TCP |
 | Spark | Cassandra | 9042 | CQL |
-| Superset | PostgreSQL | 5432 | TCP |
-| Superset | Cassandra | 9042 | CQL |
+| Superset | PostgreSQL (metadata) | 5432 | TCP |
+| Superset | Cassandra (data source) | 9042 | CQL |
 
 ---
 
