@@ -8,8 +8,10 @@ This project implements a comprehensive data pipeline that ingests real-time dat
 
 **Data Flow:**
 ```
-Random User API → Kafka (Message Queue) → Spark (Processing) → PostgreSQL/Cassandra (Storage) → Superset (Visualization)
+Random User API → Airflow → Kafka → Spark → Cassandra (Data) + PostgreSQL (Metadata) → Superset (Visualization)
 ```
+
+**Key Insight:** PostgreSQL is used exclusively for metadata (Airflow DAGs, Superset dashboards). Application data flows through Kafka → Spark → Cassandra. Redis provides in-memory caching for performance.
 
 ## 🏗️ Architecture
 
@@ -20,42 +22,17 @@ Random User API → Kafka (Message Queue) → Spark (Processing) → PostgreSQL/
 | **Data Ingestion** | Real-time data streaming | Kafka, Python |
 | **Orchestration** | Workflow automation & scheduling | Apache Airflow |
 | **Stream Processing** | Real-time data transformation | Apache Spark |
-| **Data Storage** | Persistent data storage | PostgreSQL, Cassandra |
+| **Metadata Storage** | Platform metadata (DAGs, dashboards, sessions) | PostgreSQL |
+| **Data Storage** | Application data (persistent, distributed) | Apache Cassandra |
+| **Caching** | High-speed in-memory cache | Redis |
 | **Visualization** | Business Intelligence dashboards | Apache Superset |
 | **Containerization** | Environment standardization | Docker & Docker Compose |
 
 ### Service Architecture
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    External API                         │
-│              (RandomUser.me)                            │
-└─────────────────────────────────────────────────────────┘
-                          ↓
-┌─────────────────────────────────────────────────────────┐
-│                  Airflow DAG                            │
-│          (Workflow Orchestration)                       │
-└─────────────────────────────────────────────────────────┘
-                          ↓
-┌──────────────────┐    ┌──────────────────┐
-│     Kafka        │    │     Spark        │
-│  (Message Bus)   │───→│  (Processing)    │
-└──────────────────┘    └──────────────────┘
-                          ↓
-        ┌─────────────────┴─────────────────┐
-        ↓                                   ↓
-    ┌─────────────┐               ┌────────────────┐
-    │ PostgreSQL  │               │   Cassandra    │
-    │  (OLTP)     │               │   (NoSQL)      │
-    └─────────────┘               └────────────────┘
-        ↓                                   ↓
-        └─────────────────┬─────────────────┘
-                          ↓
-                  ┌───────────────┐
-                  │   Superset    │
-                  │  (Dashboards) │
-                  └───────────────┘
-```
+![Architecture Diagram](./Architecture.png)
+
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed component descriptions and deployment information.
 
 ## 🚀 Quick Start
 
@@ -84,21 +61,23 @@ docker compose ps
 ```
 
 4. **Access the services**
-- Airflow UI: http://localhost:8080
-- Superset UI: http://localhost:8088
-- Kafka: localhost:9092
-- PostgreSQL: localhost:5432
-- Cassandra: localhost:9042
+- Airflow UI: http://localhost:8080 (metadata orchestration)
+- Superset UI: http://localhost:8088 (dashboarding)
+- Kafka: localhost:9092 (message broker)
+- Spark Master UI: http://localhost:8080 (processing)
+- PostgreSQL: localhost:5432 (metadata only)
+- Cassandra: localhost:9042 (application data)
+- Redis: localhost:6379 (caching)
 
 ### Default Credentials
 
-| Service | Username | Password |
-|---------|----------|----------|
-| Airflow | airflow | airflow |
-| Superset | admin | admin |
-| PostgreSQL (Airflow) | airflow | airflow |
-| PostgreSQL (Superset) | superset | superset |
-| Cassandra | — | — |
+| Service | Username | Password | Notes |
+|---------|----------|----------|-------|
+| Airflow | airflow | airflow | Metadata DB (PostgreSQL) |
+| Superset | admin | admin | Metadata DB (PostgreSQL) + Cache (Redis) |
+| PostgreSQL | airflow / superset | airflow / superset | Metadata only (not OLTP) |
+| Cassandra | — | — | Application data storage |
+| Redis | — | — | In-memory cache (no auth by default) |
 
 ## 📁 Project Structure
 
@@ -139,34 +118,44 @@ E2E/
 The DAG in [airflow/dags/kafka_stream.py](airflow/dags/kafka_stream.py) performs:
 - Fetches random user data from RandomUser.me API
 - Formats and structures the data
-- Produces messages to Kafka topic
+- Produces messages to Kafka topic `users_created`
 - Scheduled to run periodically
 
 **Topics:**
-- `users_topic` - Raw user data stream
+- `users_created` - Raw user data stream from API
 
 ### 2. Stream Processing (Spark)
-Spark jobs consume from Kafka and:
+Spark Structured Streaming jobs consume from Kafka and:
+- Read from `users_created` Kafka topic
 - Apply transformations and data quality checks
 - Enrich data with additional attributes
-- Write processed data to storage layer
+- Write processed data to Cassandra (primary storage)
 
-### 3. Data Storage
-**PostgreSQL** (Relational):
-- Structured user profiles
-- Metadata and configurations
-- Optimized for OLTP queries
+### 3. Metadata & Caching Layer
+**PostgreSQL** (Metadata Only):
+- Airflow DAG definitions and task state
+- Superset dashboard/slice definitions and user sessions
+- DO NOT use for application data
 
-**Cassandra** (NoSQL):
-- Time-series user events
-- High-write throughput
-- Distributed storage for scalability
+**Redis** (In-Memory Cache):
+- Caches Airflow task state and DAG metadata
+- Caches Superset query results for fast dashboard loads
+- Stores session information for both Airflow and Superset
 
-### 4. Data Visualization (Superset)
+### 4. Data Storage (Cassandra)
+**Cassandra** (NoSQL - Primary Storage):
+- User profiles and events
+- Time-series data from Spark processing
+- High write-throughput, distributed architecture
+- Replicated across cluster for durability
+
+### 5. Data Visualization (Superset)
 Interactive dashboards displaying:
-- User demographics
-- Activity patterns
-- Real-time metrics
+- User demographics (from Cassandra)
+- Activity patterns and trends
+- Real-time metrics and KPIs
+- Metadata and dashboard state (from PostgreSQL)
+- Cached query results (from Redis)
 
 ## 🛠️ Configuration
 
@@ -290,12 +279,13 @@ docker exec broker kafka-topics.sh --list --bootstrap-server localhost:9092
 
 ## 📚 Key Technologies
 
-- **Apache Airflow** - Workflow orchestration
+- **Apache Airflow** - Workflow orchestration (metadata in PostgreSQL)
 - **Apache Kafka** - Event streaming platform
 - **Apache Spark** - Distributed data processing
-- **PostgreSQL** - Relational database
-- **Apache Cassandra** - NoSQL database
-- **Apache Superset** - Data visualization
+- **PostgreSQL** - Relational database (metadata only, NOT for OLTP)
+- **Apache Cassandra** - NoSQL database (primary application data storage)
+- **Redis** - In-memory cache (session & query result caching)
+- **Apache Superset** - Data visualization & BI
 - **Docker & Docker Compose** - Containerization
 
 ## 🤝 Contributing
