@@ -4,67 +4,12 @@
 
 ### High-Level Data Flow
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                      DATA INGESTION                          │
-│                    (RandomUser API)                          │
-│  Fetches: Name, Email, Phone, Demographics, Location        │
-└──────────────────────────────────────────────────────────────┘
-                             │
-                             ▼
-┌──────────────────────────────────────────────────────────────┐
-│                    ORCHESTRATION LAYER                       │
-│                    (Apache Airflow)                          │
-│  • DAG Scheduling                                            │
-│  • Data Transformation Pipeline                             │
-│  • Error Handling & Retries                                 │
-│  • Dependency Management                                    │
-└──────────────────────────────────────────────────────────────┘
-                             │
-                             ▼
-┌──────────────────────────────────────────────────────────────┐
-│                    MESSAGE BROKER LAYER                      │
-│                    (Apache Kafka)                            │
-│  Topic: users_topic                                          │
-│  • Partitions: 3 (default)                                  │
-│  • Replication Factor: 1                                    │
-│  • Retention: Based on configuration                        │
-└──────────────────────────────────────────────────────────────┘
-                             │
-                             ▼
-┌──────────────────────────────────────────────────────────────┐
-│                  STREAM PROCESSING LAYER                     │
-│                    (Apache Spark)                            │
-│  • Real-time stream processing                              │
-│  • Data transformation & enrichment                         │
-│  • Aggregations & windowing                                 │
-│  • Data quality validation                                  │
-└──────────────────────────────────────────────────────────────┘
-                             │
-                ┌────────────┴────────────┐
-                ▼                         ▼
-    ┌─────────────────────┐   ┌────────────────────┐
-   │   STORAGE LAYER     │   │  STORAGE LAYER     │
-   │ PostgreSQL (Metadata│   │    Cassandra       │
-   │     only)           │   │  • Time-Series     │
-   │  • Metadata store   │   │  • High Throughput │
-   │  • Airflow &        │   │  • Distributed     │
-   │    Superset metadata│   │  • NoSQL Model     │
-   │  • Not used for     │   │                    │
-   │    application OLTP │   │                    │
-    └─────────────────────┘   └────────────────────┘
-                │                       │
-                └───────────┬───────────┘
-                            ▼
-    ┌──────────────────────────────────────┐
-    │     VISUALIZATION LAYER              │
-    │       (Apache Superset)              │
-    │  • Interactive Dashboards            │
-    │  • Real-time Analytics               │
-    │  • Data Exploration                  │
-    │  • Custom Metrics                    │
-    └──────────────────────────────────────┘
-```
+![Architecture Diagram](./architecture.png)
+
+**Key Flows:**
+- **Metadata Flow** (PostgreSQL): Airflow and Superset use PostgreSQL for storing DAGs, task state, user preferences, dashboard definitions, and other platform metadata—NOT for application data.
+- **Data Streaming Flow** (Kafka → Spark → Cassandra): Airflow sends data to Kafka. Spark reads from Kafka, processes/transforms the data, and writes to Cassandra for caching and analytics. Superset reads from Cassandra to build dashboards.
+- **Caching Flow** (Redis): Airflow and Superset use Redis for in-memory caching of query results, session data, and frequently accessed metadata to improve performance and reduce latency.
 
 ---
 
@@ -229,7 +174,7 @@ user_events
 **Databases Connected:**
 - PostgreSQL (superset metadata only)
 - Cassandra (as a data source for analytical dashboards)
-\- Other datasource connectors may be added (e.g., object storage, Redshift)
+- Other datasource connectors may be added (e.g., object storage, Redshift)
 
 **Features:**
 - Drag-and-drop dashboard builder
@@ -241,8 +186,32 @@ user_events
 **Configuration:**
 - Port: 8088
 - User: admin (default)
-- Database URI: PostgreSQL
-- Cache: File-based (in-container)
+- Database URI: PostgreSQL (metadata)
+- Cache: Redis (for query results and session caching)
+- Network: `superset-network`
+
+---
+
+### 7. Redis Cache
+
+**Purpose:** In-memory caching layer for high-performance data access and session management
+
+**Use Cases:**
+- Airflow task state and DAG metadata caching
+- Superset query result caching (improved dashboard load times)
+- Superset session management (user logins, preferences)
+- Distributed cache for Spark job metadata (optional)
+
+**Key Properties:**
+- Type: In-Memory Key-Value Store
+- TTL: Configurable per use case (typically 5 minutes to 1 hour)
+- Eviction Policy: LRU (Least Recently Used)
+- Persistence: RDB snapshots or AOF (configurable)
+- Replication: Single instance (can be upgraded to Redis Cluster for HA)
+
+**Networks:**
+- `airflow-network` (for Airflow caching)
+- `superset-network` (for Superset caching)
 
 ---
 
@@ -279,10 +248,12 @@ Networks:
 |------|----|----|----------|
 | Airflow | Kafka | 9092 | TCP |
 | Airflow | PostgreSQL | 5432 | TCP |
+| Airflow | Redis | 6379 | TCP |
 | Spark | Kafka | 9092 | TCP |
 | Spark | Cassandra | 9042 | CQL |
 | Superset | PostgreSQL (metadata) | 5432 | TCP |
 | Superset | Cassandra (data source) | 9042 | CQL |
+| Superset | Redis (cache) | 6379 | TCP |
 
 ---
 
