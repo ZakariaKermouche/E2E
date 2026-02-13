@@ -30,7 +30,7 @@ Random User API → Airflow → Kafka → Spark → Cassandra (Data) + PostgreSQ
 
 ### Service Architecture
 
-![Architecture Diagram](./architecture.png)
+![Architecture Diagram](./Architecture.png)
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed component descriptions and deployment information.
 
