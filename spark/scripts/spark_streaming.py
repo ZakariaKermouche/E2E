@@ -189,11 +189,14 @@
 
 
 import logging
+import socket
 import sys
-
+import time
+ 
 from cassandra.cluster import Cluster
+from cassandra.policies import DCAwareRoundRobinPolicy
 from pyspark.sql import SparkSession, DataFrame
-from pyspark.sql.functions import from_json, col
+from pyspark.sql.functions import from_json, col, current_timestamp, date_format
 from pyspark.sql.types import StructType, StructField, StringType
 
 # Configure logging to output to console
@@ -204,7 +207,6 @@ logging.basicConfig(
         logging.StreamHandler(sys.stdout)
     ]
 )
-
 
 
 def create_keyspace(session):
@@ -285,10 +287,11 @@ def create_spark_connection():
         s_conn = SparkSession.builder \
             .appName('SparkDataStreaming') \
             .config('spark.cassandra.connection.host', 'cassandra') \
-            .config('spark.jars.packages', "com.datastax.spark:spark-cassandra-connector_2.12:3.5.1,"
-                                           "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1,"
-                                           "org.apache.kafka:kafka-clients:3.5.1") \
-            .getOrCreate() 
+            .getOrCreate()
+            # .config('spark.jars.packages', "com.datastax.spark:spark-cassandra-connector_2.12:3.5.1,"
+            #                                "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1,"
+            #                                "org.apache.kafka:kafka-clients:3.5.1") \
+            # .getOrCreate() 
             #                                \
             # .config('spark.cassandra.connection.host', 'localhost') \
             # .getOrCreate()  
@@ -327,32 +330,82 @@ def connect_to_kafka(spark_conn: SparkSession):
     return spark_df
 
 
+# def create_cassandra_connection():
+#     max_retries = 5
+#     retry_count = 0
+    
+#     while retry_count < max_retries:
+#         try:
+#             # connecting to the cassandra cluster
+#             logging.info(f"Attempting Cassandra connection (attempt {retry_count + 1}/{max_retries})...")
+#             cluster = Cluster(['cassandra'], connect_timeout=10)
+#             cas_session = cluster.connect()
+#             logging.info("Connected to Cassandra successfully!")
+#             return cas_session
+#         except Exception as e:
+#             retry_count += 1
+#             if retry_count < max_retries:
+#                 logging.warning(f"Cassandra connection attempt {retry_count} failed: {e}. Retrying...")
+#                 import time
+#                 time.sleep(5)
+#             else:
+#                 logging.error(f"Could not create cassandra connection after {max_retries} attempts: {e}")
+#                 return None
+
+
 def create_cassandra_connection():
     max_retries = 5
+    host = 'cassandra'
+    port = 9042
+    retry_delay_seconds = 5
+
+    def wait_for_cassandra_port(timeout_seconds: int = 60):
+        """Wait until Cassandra's native transport port is reachable."""
+        start = time.time()
+        while (time.time() - start) < timeout_seconds:
+            try:
+                with socket.create_connection((host, port), timeout=3):
+                    return True
+            except OSError:
+                time.sleep(2)
+        return False
+
+    if not wait_for_cassandra_port():
+        logging.error("Cassandra port 9042 did not become reachable within 60 seconds")
+        return None
+
     retry_count = 0
-    
+     
     while retry_count < max_retries:
         try:
             # connecting to the cassandra cluster
             logging.info(f"Attempting Cassandra connection (attempt {retry_count + 1}/{max_retries})...")
-            cluster = Cluster(['cassandra'], connect_timeout=10)
+            cluster = Cluster(
+                [host],
+                port=port,
+                connect_timeout=30,
+                control_connection_timeout=30,
+                protocol_version=5,
+                load_balancing_policy=DCAwareRoundRobinPolicy(local_dc='datacenter1')
+            )
             cas_session = cluster.connect()
+            cas_session.default_timeout = 30
             logging.info("Connected to Cassandra successfully!")
             return cas_session
         except Exception as e:
-            retry_count += 1
-            if retry_count < max_retries:
-                logging.warning(f"Cassandra connection attempt {retry_count} failed: {e}. Retrying...")
-                import time
-                time.sleep(5)
-            else:
-                logging.error(f"Could not create cassandra connection after {max_retries} attempts: {e}")
-                return None
+             retry_count += 1
+             if retry_count < max_retries:
+                 logging.warning(f"Cassandra connection attempt {retry_count} failed: {e}. Retrying...")
+                 time.sleep(retry_delay_seconds)
+             else:
+                 logging.error(f"Could not create cassandra connection after {max_retries} attempts: {e}")
+                 return None
+ 
 
 
 def create_selection_df_from_kafka(spark_df: DataFrame):
     schema = StructType([
-        StructField("id", StringType(), False),
+        # StructField("id", StringType(), False),
         StructField("first_name", StringType(), False),
         StructField("last_name", StringType(), False),
         StructField("gender", StringType(), False),
@@ -365,10 +418,22 @@ def create_selection_df_from_kafka(spark_df: DataFrame):
         StructField("picture", StringType(), False)
     ])
 
-    sel = spark_df.selectExpr("CAST(value AS STRING)") \
+    # sel = spark_df.selectExpr("CAST(value AS STRING)") \
+    parsed_df = spark_df.selectExpr("CAST(value AS STRING)") \
         .select(from_json(col('value'), schema).alias('data')).select("data.*")
-    print(sel)
-
+    # print(sel)
+    # Populate Cassandra primary key columns and keep only target table columns.
+    sel = (parsed_df
+           .withColumn('created_at', current_timestamp())
+           .withColumn('year', date_format(col('created_at'), 'yyyy'))
+           .withColumn('month', date_format(col('created_at'), 'MM'))
+           .withColumn('day', date_format(col('created_at'), 'dd'))
+           .select('first_name', 'last_name', 'gender', 'address', 'post_code', 'email',
+                   'username', 'registered_date', 'phone', 'picture',
+                   'created_at', 'year', 'month', 'day')
+           .filter(col('year').isNotNull() & col('month').isNotNull() & col('day').isNotNull()))
+ 
+     
     return sel
 
 

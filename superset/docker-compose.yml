@@ -104,7 +104,7 @@ services:
     env_file:
       - ./.env
     volumes:
-      - ./trino/cataolg/cassandra.properties:/etc/trino/catalog/cassandra.properties
+      - ./trino/catalog/cassandra.properties:/etc/trino/catalog/cassandra.properties
     ports:
       - $TRINO_HOST_PORT:$TRINO_INTERNAL_PORT
     networks:
