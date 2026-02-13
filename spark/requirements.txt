@@ -1,0 +1,4 @@
+cassandra-driver==3.29.3
+kafka-python==2.3.0
+kafka-python-ng==2.2.3
+

@@ -32,6 +32,8 @@ docker-compose.override.yml
 # Logs
 logs/
 *.log
+log.*
+
 
 # Temporary files
 temp/
@@ -74,7 +76,7 @@ dmypy.json
 airflow/logs/
 airflow/plugins/__pycache__/
 spark/work/
-superset/
+kafka/kafka-data/zookeeper/data/*
 
 # Sensitive
 credentials.json

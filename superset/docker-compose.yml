@@ -1,0 +1,121 @@
+# Docker Compose file for Superset with only app service and metadata database
+
+x-superset-user: &superset-user root
+x-superset-volumes: &superset-volumes
+  # /app/pythonpath_docker will be appended to the PYTHONPATH in the final container
+  - ./docker:/app/docker
+  # - ./superset:/app/superset
+  - ./docker/superset_config.py:/app/superset_config.py
+
+services:
+  # superset:
+  #   image: apache/superset:latest
+  #   container_name: superset
+  #   ports:
+  #     - "8088:8088"
+  #   environment:
+  #     SUPERSET_ENV: production
+  #     SUPERSET_LOAD_EXAMPLES: "no"
+  #     SUPERSET_SECRET_KEY: "your_secret_key"
+  #     SUPERSET_DATABASE_URI: "sqlite:////var/lib/superset/superset.db"
+  #   volumes:
+  #     - superset_home:/var/lib/superset
+  #   depends_on:
+  #     - postgres
+  #   networks:
+  #     - superset-network
+
+  superset:
+    image: apache/superset:3.0.0-py310
+    container_name: superset-app
+    env_file:
+      - path: docker/.env # default
+        required: true
+    command: ["/app/docker/docker-bootstrap.sh", "app"]
+    restart: unless-stopped
+    environment:
+      - SUPERSET_LOG_LEVEL="${SUPERSET_LOG_LEVEL:-INFO}"
+      - DATABASE-DB=${POSTGRES_DB}
+    ports:
+      - ${SUPERSET_PORT:-8088}:8088
+    user: *superset-user
+    depends_on:
+      superset-init:
+        condition: service_completed_successfully
+    volumes: *superset-volumes
+    networks:
+      - superset-network
+      - spark-network
+
+    
+
+  superset-init:
+    image: apache/superset:3.0.0-py310
+    container_name: superset-init
+    # build:
+    #   <<: *common-build
+    command: ["/app/docker/docker-init.sh"]
+    env_file:
+      - path: docker/.env # default
+        required: true
+    depends_on:
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_started
+    user: *superset-user
+    volumes: *superset-volumes
+    environment:
+      - SUPERSET_LOAD_EXAMPLES="${SUPERSET_LOAD_EXAMPLES:-no}"
+      - SUPERSET_LOG_LEVEL="${SUPERSET_LOG_LEVEL:-INFO}"
+      - DATABASE-DB=${POSTGRES_DB}
+    healthcheck:
+      disable: true 
+    networks:
+      - superset-network
+      - spark-network
+    
+  # db:
+  #   image: postgres:13
+  #   container_name: superset-db
+  #   environment:
+  #     POSTGRES_DB: superset
+  #     POSTGRES_USER: superset
+  #     POSTGRES_PASSWORD: superset
+    
+  #   ports:
+  #     - "5433:5432"
+  #   volumes:
+  #     - superset_db_data:/var/lib/postgresql/data
+  #   networks:
+  #     - superset-network
+  # presto:
+  #   image: ahanaio/prestodb-sandbox
+  #   ports:
+  #     - "8089:8080"
+  #   networks:
+  #     - superset-network
+
+  # Trino service
+  trino:
+    image: trinodb/trino:latest
+    container_name: trino
+    hostname: trino
+    env_file:
+      - ./.env
+    volumes:
+      - ./trino/cataolg/cassandra.properties:/etc/trino/catalog/cassandra.properties
+    ports:
+      - $TRINO_HOST_PORT:$TRINO_INTERNAL_PORT
+    networks:
+      - superset-network
+      - spark-network
+    deploy:
+      resources:
+       limits:
+        memory: 1.5G
+        cpus: "2"
+       reservations:
+        memory: 0.5G
+        cpus: "0.5"
+    

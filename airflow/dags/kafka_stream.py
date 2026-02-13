@@ -39,6 +39,10 @@ def format_data(res):
     data['address'] = f"{res['location']['street']['number']} {res['location']['street']['name']}, {res['location']['city']}, {res['location']['state']}, {res['location']['country']}"
 
     data['postcode'] = res['location']['postcode']
+    data['created_date'] = datetime.now().isoformat()
+    data['year'] = datetime.now().isoformat().split('T')[0].split('-')[0]
+    data['month'] = datetime.now().isoformat().split('T')[0].split('-')[1]
+    data['day'] = datetime.now().isoformat().split('T')[0].split('-')[2]
 
     return data
 
@@ -49,17 +53,18 @@ def stream_data():
     from kafka import KafkaProducer
     import time
     import logging
+    try:
+        producer = KafkaProducer(bootstrap_servers=['broker:29092'], max_block_ms=5000
+                                ,
+            api_version=(0, 10, 1))
 
-    producer = KafkaProducer(bootstrap_servers=['broker:29092'], max_block_ms=5000
-                             ,
-        api_version=(0, 10, 1))
-
-    res = get_data()
-    res = format_data(res)
-    print("Sending data to Kafka:", res)
-    producer.send('users_created', json.dumps(res).encode('utf-8'))
+        res = get_data()
+        res = format_data(res)
+        print("Sending data to Kafka:", res)
+        producer.send('users_created', json.dumps(res).encode('utf-8'))
     
-    
+    except Exception as e:
+        logging.error(f'An error occurred: {e}')
     # curr_time = time.time()
 
     # while True:
