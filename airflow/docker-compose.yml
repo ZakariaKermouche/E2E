@@ -9,7 +9,7 @@ x-airflow-common:
     - ${ENV_FILE_PATH:-.env}
   environment:
     &airflow-common-env
-    AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+    AIRFLOW__CORE__EXECUTOR: LocalExecuter # CeleryExecutor
     AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
     AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow@postgres/airflow
@@ -106,7 +106,13 @@ services:
 
   airflow-scheduler:
     <<: *airflow-common
-    command: scheduler
+    # command: scheduler
+    command:
+    - bash
+    - -c
+    - |
+      airflow dags unpause kafka_stream || true
+      exec airflow scheduler
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8974/health"]
       interval: 30s

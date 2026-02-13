@@ -13,6 +13,12 @@ services:
       volumes:
           - ./kafka-data/zookeeper/data:/var/lib/zookeeper/data
           - ./kafka-data/zookeeper/log:/var/lib/zookeeper/log
+      
+      healthcheck:
+        test: [ "CMD", "echo", "ruok", "|", "nc", "-w", "5", "localhost", "2181" ]
+        interval: 10s
+        timeout: 5s
+        retries: 5
 
       networks:
         - spark-network
@@ -24,7 +30,8 @@ services:
       hostname: broker
       container_name: broker
       depends_on:
-        - zookeeper
+        zookeeper:
+          condition: service_healthy
       ports:
         - "9092:9092"
         - "29092:29092"
@@ -53,6 +60,7 @@ services:
         - kafka-data:$KAFKA_VOLUME_PATH
         # - ./scripts/:/scritps/
         # - ./config/entrypoint.sh:/etc/confluent/docker/entrypoint.sh
+        
 
     schema-registry:
       image: confluentinc/cp-schema-registry:latest
