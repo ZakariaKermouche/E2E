@@ -1,0 +1,66 @@
+
+services:
+     
+    spark-master:
+      image: bitnamilegacy/spark:latest
+      container_name: spark-master
+      hostname: spark-master
+      ports:
+        - "9090:8080"
+        - "7077:7077"
+      command: bash -c "/opt/bitnami/spark/bin/spark-class org.apache.spark.deploy.master.Master --host spark-master"
+      volumes:
+        - ./scripts:/opt/bitnami/spark/data_processing
+      networks:
+        - spark-network
+
+    spark-worker-1:
+      image: bitnamilegacy/spark:latest
+      container_name: spark-worker-1
+      hostname: spark-worker-1
+      # ports:
+      #   - "8081:8081" 
+      depends_on:
+        - spark-master
+      command: bash -c "/opt/bitnami/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077"
+      environment:
+        - SPARK_MODE=worker
+        - SPARK_MASTER_URL=spark://spark-master:7077
+        - SPARK_WORKER_MEMORY=1G
+        - SPARK_WORKER_CORES=2
+      networks:
+        - spark-network
+
+    spark-worker-2:
+      image: bitnamilegacy/spark:latest
+      container_name: spark-worker-2
+      hostname: spark-worker-2
+      # ports:
+      #   - "8082:8081" 
+      depends_on:
+        - spark-master
+      command: bash -c "/opt/bitnami/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077"
+      environment:
+        - SPARK_MODE=worker
+        - SPARK_MASTER_URL=spark://spark-master:7077
+        - SPARK_WORKER_MEMORY=1G
+        - SPARK_WORKER_CORES=2
+      networks:
+        - spark-network
+      
+    spark-worker-3:
+      image: bitnamilegacy/spark:latest
+      container_name: spark-worker-3
+      hostname: spark-worker-3
+      # ports:
+      #   - "8083:8081" 
+      depends_on:
+        - spark-master
+      command: bash -c "/opt/bitnami/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077"
+      environment:
+        - SPARK_MODE=worker
+        - SPARK_MASTER_URL=spark://spark-master:7077
+        - SPARK_WORKER_MEMORY=1G
+        - SPARK_WORKER_CORES=2
+      networks:
+        - spark-network
